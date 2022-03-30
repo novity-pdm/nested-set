@@ -3,6 +3,7 @@ package nestedset
 import (
 	"context"
 	"database/sql"
+	"github.com/google/uuid"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ import (
 func databaseURL() string {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if len(databaseURL) == 0 {
-		databaseURL = "postgres://localhost:5432/nested-set-test?sslmode=disable"
+		databaseURL = "postgres://postgres:postgres@localhost:5432/nested-set-test?sslmode=disable"
 	}
 	return databaseURL
 }
@@ -31,11 +32,11 @@ var (
 var clothing, mens, suits, slacks, jackets, womens, dresses, skirts, blouses, eveningGowns, sunDresses Category
 
 type Category struct {
-	ID            int64 `gorm:"PRIMARY_KEY;AUTO_INCREMENT" nestedset:"id"`
+	ID            uuid.UUID `gorm:"primary_key; unique; type:uuid; column:id; default:uuid_generate_v4()" nestedset:"id"`
 	Title         string
 	UserID        int           `nestedset:"scope"`
 	UserType      string        `nestedset:"scope"`
-	ParentID      sql.NullInt64 `nestedset:"parent_id"`
+	ParentID      uuid.NullUUID `nestedset:"parent_id"`
 	Rgt           int           `nestedset:"rgt"`
 	Lft           int           `nestedset:"lft"`
 	Depth         int           `nestedset:"depth"`
@@ -45,9 +46,9 @@ type Category struct {
 }
 
 type SpecialItem struct {
-	ItemID     int64 `gorm:"PRIMARY_KEY;AUTO_INCREMENT" nestedset:"id"`
+	ItemID     uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" nestedset:"id"`
 	Title      string
-	Pid        sql.NullInt64 `nestedset:"parent_id"`
+	Pid        uuid.NullUUID `nestedset:"parent_id"`
 	Right      int           `nestedset:"rgt"`
 	Left       int           `nestedset:"lft"`
 	Depth1     int           `nestedset:"depth"`
@@ -56,14 +57,14 @@ type SpecialItem struct {
 	UpdatedAt  time.Time
 }
 
-func findNode(query *gorm.DB, id int64) (category Category, err error) {
+func findNode(query *gorm.DB, id uuid.UUID) (category Category, err error) {
 	err = query.Where("id=?", id).Find(&category).Error
 	return
 }
 
 var CategoryFactory = factory.NewFactory(&Category{
 	Title:    "Clothing",
-	ParentID: sql.NullInt64{Valid: false},
+	ParentID: uuid.NullUUID{Valid: false},
 	UserType: "User",
 	UserID:   999,
 	Rgt:      1,
@@ -128,7 +129,7 @@ func buildTestData() {
 
 	mens = *CategoryFactory.MustCreateWithOption(map[string]interface{}{
 		"Title":         "Men's",
-		"ParentID":      sql.NullInt64{Valid: true, Int64: clothing.ID},
+		"ParentID":      uuid.NullUUID{Valid: true, UUID: clothing.ID},
 		"Lft":           2,
 		"Rgt":           9,
 		"Depth":         1,
@@ -136,7 +137,7 @@ func buildTestData() {
 	}).(*Category)
 	suits = *CategoryFactory.MustCreateWithOption(map[string]interface{}{
 		"Title":         "Suits",
-		"ParentID":      sql.NullInt64{Valid: true, Int64: mens.ID},
+		"ParentID":      uuid.NullUUID{Valid: true, UUID: mens.ID},
 		"Lft":           3,
 		"Rgt":           8,
 		"Depth":         2,
@@ -144,21 +145,21 @@ func buildTestData() {
 	}).(*Category)
 	slacks = *CategoryFactory.MustCreateWithOption(map[string]interface{}{
 		"Title":    "Slacks",
-		"ParentID": sql.NullInt64{Valid: true, Int64: suits.ID},
+		"ParentID": uuid.NullUUID{Valid: true, UUID: suits.ID},
 		"Lft":      4,
 		"Rgt":      5,
 		"Depth":    3,
 	}).(*Category)
 	jackets = *CategoryFactory.MustCreateWithOption(map[string]interface{}{
 		"Title":    "Jackets",
-		"ParentID": sql.NullInt64{Valid: true, Int64: suits.ID},
+		"ParentID": uuid.NullUUID{Valid: true, UUID: suits.ID},
 		"Lft":      6,
 		"Rgt":      7,
 		"Depth":    3,
 	}).(*Category)
 	womens = *CategoryFactory.MustCreateWithOption(map[string]interface{}{
 		"Title":         "Women's",
-		"ParentID":      sql.NullInt64{Valid: true, Int64: clothing.ID},
+		"ParentID":      uuid.NullUUID{Valid: true, UUID: clothing.ID},
 		"Lft":           10,
 		"Rgt":           21,
 		"Depth":         1,
@@ -166,7 +167,7 @@ func buildTestData() {
 	}).(*Category)
 	dresses = *CategoryFactory.MustCreateWithOption(map[string]interface{}{
 		"Title":         "Dresses",
-		"ParentID":      sql.NullInt64{Valid: true, Int64: womens.ID},
+		"ParentID":      uuid.NullUUID{Valid: true, UUID: womens.ID},
 		"Lft":           11,
 		"Rgt":           16,
 		"Depth":         2,
@@ -174,28 +175,28 @@ func buildTestData() {
 	}).(*Category)
 	eveningGowns = *CategoryFactory.MustCreateWithOption(map[string]interface{}{
 		"Title":    "Evening Gowns",
-		"ParentID": sql.NullInt64{Valid: true, Int64: dresses.ID},
+		"ParentID": uuid.NullUUID{Valid: true, UUID: dresses.ID},
 		"Lft":      12,
 		"Rgt":      13,
 		"Depth":    3,
 	}).(*Category)
 	sunDresses = *CategoryFactory.MustCreateWithOption(map[string]interface{}{
 		"Title":    "Sun Dresses",
-		"ParentID": sql.NullInt64{Valid: true, Int64: dresses.ID},
+		"ParentID": uuid.NullUUID{Valid: true, UUID: dresses.ID},
 		"Lft":      14,
 		"Rgt":      15,
 		"Depth":    3,
 	}).(*Category)
 	skirts = *CategoryFactory.MustCreateWithOption(map[string]interface{}{
 		"Title":    "Skirts",
-		"ParentID": sql.NullInt64{Valid: true, Int64: womens.ID},
+		"ParentID": uuid.NullUUID{Valid: true, UUID: womens.ID},
 		"Lft":      17,
 		"Rgt":      18,
 		"Depth":    2,
 	}).(*Category)
 	blouses = *CategoryFactory.MustCreateWithOption(map[string]interface{}{
 		"Title":    "Blouses",
-		"ParentID": sql.NullInt64{Valid: true, Int64: womens.ID},
+		"ParentID": uuid.NullUUID{Valid: true, UUID: womens.ID},
 		"Lft":      19,
 		"Rgt":      20,
 		"Depth":    2,

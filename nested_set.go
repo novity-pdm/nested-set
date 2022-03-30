@@ -1,8 +1,9 @@
 package nestedset
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
+	"github.com/google/uuid"
 	"reflect"
 	"strings"
 	"sync"
@@ -27,8 +28,8 @@ const (
 )
 
 type nestedItem struct {
-	ID            int64
-	ParentID      sql.NullInt64
+	ID            uuid.UUID
+	ParentID      uuid.NullUUID
 	Depth         int
 	Rgt           int
 	Lft           int
@@ -39,7 +40,7 @@ type nestedItem struct {
 
 // parseNode parse a gorm struct into an internal nested item struct
 // bring in all required data attribute like scope, left, righ etc.
-func parseNode(db *gorm.DB, source interface{}) (tx *gorm.DB, item nestedItem, err error) {
+func parseNode(ctx context.Context, db *gorm.DB, source interface{}) (tx *gorm.DB, item nestedItem, err error) {
 	scm, err := schema.Parse(source, &sync.Map{}, schema.NamingStrategy{})
 	if err != nil {
 		err = fmt.Errorf("Invalid source, must be a valid Gorm Model instance, %v", source)
@@ -60,11 +61,11 @@ func parseNode(db *gorm.DB, source interface{}) (tx *gorm.DB, item nestedItem, e
 
 		switch t.Tag.Get("nestedset") {
 		case "id":
-			item.ID = v.Int()
+			item.ID = v.Interface().(uuid.UUID)
 			item.DbNames["id"] = dbName
 			break
 		case "parent_id":
-			item.ParentID = v.Interface().(sql.NullInt64)
+			item.ParentID = v.Interface().(uuid.NullUUID)
 			item.DbNames["parent_id"] = dbName
 			break
 		case "depth":
@@ -84,7 +85,7 @@ func parseNode(db *gorm.DB, source interface{}) (tx *gorm.DB, item nestedItem, e
 			item.DbNames["children_count"] = dbName
 			break
 		case "scope":
-			rawVal, _ := schemaField.ValueOf(sourceValue)
+			rawVal, _ := schemaField.ValueOf(ctx, sourceValue)
 			tx = tx.Where(dbName+" = ?", rawVal)
 			break
 		}
@@ -96,8 +97,8 @@ func parseNode(db *gorm.DB, source interface{}) (tx *gorm.DB, item nestedItem, e
 // Create a new node within its parent by Gorm original Create() method
 // ```nestedset.Create(db, &Category{...}, nil)``` will create a new category in root level
 // ```nestedset.Create(db, &Category{...}, &parent)``` will create a new category under parent node as its last child
-func Create(db *gorm.DB, source, parent interface{}) error {
-	tx, target, err := parseNode(db, source)
+func Create(ctx context.Context, db *gorm.DB, source, parent interface{}) error {
+	tx, target, err := parseNode(ctx, db, source)
 	if err != nil {
 		return err
 	}
@@ -116,7 +117,7 @@ func Create(db *gorm.DB, source, parent interface{}) error {
 				setToRgt = setToLft + 1
 			}
 		} else {
-			_, targetParent, err := parseNode(db, parent)
+			_, targetParent, err := parseNode(ctx, db, parent)
 			if err != nil {
 				return err
 			}
@@ -174,8 +175,8 @@ func Create(db *gorm.DB, source, parent interface{}) error {
 
 // Delete a node from scoped list and its all descendent
 // ```nestedset.Delete(db, &Category{...})```
-func Delete(db *gorm.DB, source interface{}) error {
-	tx, target, err := parseNode(db, source)
+func Delete(ctx context.Context, db *gorm.DB, source interface{}) error {
+	tx, target, err := parseNode(ctx, db, source)
 	if err != nil {
 		return err
 	}
@@ -189,7 +190,7 @@ func Delete(db *gorm.DB, source interface{}) error {
 		f := t.Field(i)
 		if f.Tag.Get("nestedset") == "id" {
 			f := v.FieldByName(f.Name)
-			f.SetInt(0)
+			f.Set(reflect.ValueOf(uuid.New()))
 			break
 		}
 	}
@@ -219,13 +220,13 @@ func Delete(db *gorm.DB, source interface{}) error {
 
 // MoveTo move node to a position which is related a target node
 // ```nestedset.MoveTo(db, &node, &to, nestedset.MoveDirectionInner)``` will move [&node] to [&to] node's child_list as its first child
-func MoveTo(db *gorm.DB, node, to interface{}, direction MoveDirection) error {
-	tx, targetNode, err := parseNode(db, node)
+func MoveTo(ctx context.Context, db *gorm.DB, node, to interface{}, direction MoveDirection) error {
+	tx, targetNode, err := parseNode(ctx, db, node)
 	if err != nil {
 		return err
 	}
 
-	_, toNode, err := parseNode(db, to)
+	_, toNode, err := parseNode(ctx, db, to)
 	if err != nil {
 		return err
 	}
@@ -236,7 +237,7 @@ func MoveTo(db *gorm.DB, node, to interface{}, direction MoveDirection) error {
 	}
 
 	var right, depthChange int
-	var newParentID sql.NullInt64
+	var newParentID uuid.NullUUID
 	if direction == MoveDirectionLeft || direction == MoveDirectionRight {
 		newParentID = toNode.ParentID
 		depthChange = toNode.Depth - targetNode.Depth
@@ -246,12 +247,12 @@ func MoveTo(db *gorm.DB, node, to interface{}, direction MoveDirection) error {
 			right = toNode.Rgt
 		}
 	} else {
-		newParentID = sql.NullInt64{Int64: toNode.ID, Valid: true}
+		newParentID = uuid.NullUUID{UUID: toNode.ID, Valid: true}
 		depthChange = toNode.Depth + 1 - targetNode.Depth
 		right = toNode.Lft
 	}
 
-	return moveToRightOfPosition(tx, targetNode, right, depthChange, newParentID)
+	return moveToRightOfPosition(ctx, tx, targetNode, right, depthChange, newParentID)
 }
 
 func moveIsValid(node, to nestedItem) error {
@@ -263,15 +264,15 @@ func moveIsValid(node, to nestedItem) error {
 	return nil
 }
 
-func moveToRightOfPosition(tx *gorm.DB, targetNode nestedItem, position, depthChange int, newParentID sql.NullInt64) error {
+func moveToRightOfPosition(ctx context.Context, tx *gorm.DB, targetNode nestedItem, position, depthChange int, newParentID uuid.NullUUID) error {
 	return tx.Transaction(func(tx *gorm.DB) (err error) {
 		oldParentID := targetNode.ParentID
 		targetRight := targetNode.Rgt
 		targetLeft := targetNode.Lft
 		targetWidth := targetRight - targetLeft + 1
 
-		targetIds := []int64{}
-		err = tx.Where(formatSQL(":lft >= ? AND :rgt <= ?", targetNode), targetLeft, targetRight).Pluck("id", &targetIds).Error
+		targetIds := make([]uuid.UUID, 0, 1)
+		err = tx.WithContext(ctx).Where(formatSQL(":lft >= ? AND :rgt <= ?", targetNode), targetLeft, targetRight).Pluck("id", &targetIds).Error
 		if err != nil {
 			return
 		}
@@ -292,40 +293,40 @@ func moveToRightOfPosition(tx *gorm.DB, targetNode nestedItem, position, depthCh
 			return nil
 		}
 
-		err = moveAffected(tx, targetNode, affectedGte, affectedLte, affectedStep)
+		err = moveAffected(ctx, tx, targetNode, affectedGte, affectedLte, affectedStep)
 		if err != nil {
 			return
 		}
 
-		err = moveTarget(tx, targetNode, targetNode.ID, targetIds, moveStep, depthChange, newParentID)
+		err = moveTarget(ctx, tx, targetNode, targetNode.ID, targetIds, moveStep, depthChange, newParentID)
 		if err != nil {
 			return
 		}
 
-		return syncChildrenCount(tx, targetNode, oldParentID, newParentID)
+		return syncChildrenCount(ctx, tx, targetNode, oldParentID, newParentID)
 	})
 }
 
-func syncChildrenCount(tx *gorm.DB, targetNode nestedItem, oldParentID, newParentID sql.NullInt64) (err error) {
+func syncChildrenCount(ctx context.Context, tx *gorm.DB, targetNode nestedItem, oldParentID, newParentID uuid.NullUUID) (err error) {
 	var oldParentCount, newParentCount int64
 
 	if oldParentID.Valid {
-		err = tx.Where(formatSQL(":parent_id = ?", targetNode), oldParentID).Count(&oldParentCount).Error
+		err = tx.WithContext(ctx).Where(formatSQL(":parent_id = ?", targetNode), oldParentID).Count(&oldParentCount).Error
 		if err != nil {
 			return
 		}
-		err = tx.Where(formatSQL(":id = ?", targetNode), oldParentID).Update(targetNode.DbNames["children_count"], oldParentCount).Error
+		err = tx.WithContext(ctx).Where(formatSQL(":id = ?", targetNode), oldParentID).Update(targetNode.DbNames["children_count"], oldParentCount).Error
 		if err != nil {
 			return
 		}
 	}
 
 	if newParentID.Valid {
-		err = tx.Where(formatSQL(":parent_id = ?", targetNode), newParentID).Count(&newParentCount).Error
+		err = tx.WithContext(ctx).Where(formatSQL(":parent_id = ?", targetNode), newParentID).Count(&newParentCount).Error
 		if err != nil {
 			return
 		}
-		err = tx.Where(formatSQL(":id = ?", targetNode), newParentID).Update(targetNode.DbNames["children_count"], newParentCount).Error
+		err = tx.WithContext(ctx).Where(formatSQL(":id = ?", targetNode), newParentID).Update(targetNode.DbNames["children_count"], newParentCount).Error
 		if err != nil {
 			return
 		}
@@ -334,11 +335,11 @@ func syncChildrenCount(tx *gorm.DB, targetNode nestedItem, oldParentID, newParen
 	return nil
 }
 
-func moveTarget(tx *gorm.DB, targetNode nestedItem, targetID int64, targetIds []int64, step, depthChange int, newParentID sql.NullInt64) (err error) {
+func moveTarget(ctx context.Context, tx *gorm.DB, targetNode nestedItem, targetID uuid.UUID, targetIds []uuid.UUID, step, depthChange int, newParentID uuid.NullUUID) (err error) {
 	dbNames := targetNode.DbNames
 
 	if len(targetIds) > 0 {
-		err = tx.Where(formatSQL(":id IN (?)", targetNode), targetIds).
+		err = tx.WithContext(ctx).Where(formatSQL(":id IN (?)", targetNode), targetIds).
 			Updates(map[string]interface{}{
 				dbNames["lft"]:   gorm.Expr(formatSQL(":lft + ?", targetNode), step),
 				dbNames["rgt"]:   gorm.Expr(formatSQL(":rgt + ?", targetNode), step),
@@ -349,13 +350,13 @@ func moveTarget(tx *gorm.DB, targetNode nestedItem, targetID int64, targetIds []
 		}
 	}
 
-	return tx.Where(formatSQL(":id = ?", targetNode), targetID).Update(dbNames["parent_id"], newParentID).Error
+	return tx.WithContext(ctx).Where(formatSQL(":id = ?", targetNode), targetID).Update(dbNames["parent_id"], newParentID).Error
 }
 
-func moveAffected(tx *gorm.DB, targetNode nestedItem, gte, lte, step int) (err error) {
+func moveAffected(ctx context.Context, tx *gorm.DB, targetNode nestedItem, gte, lte, step int) (err error) {
 	dbNames := targetNode.DbNames
 
-	return tx.Where(formatSQL("(:lft BETWEEN ? AND ?) OR (:rgt BETWEEN ? AND ?)", targetNode), gte, lte, gte, lte).
+	return tx.WithContext(ctx).Where(formatSQL("(:lft BETWEEN ? AND ?) OR (:rgt BETWEEN ? AND ?)", targetNode), gte, lte, gte, lte).
 		Updates(map[string]interface{}{
 			dbNames["lft"]: gorm.Expr(formatSQL("(CASE WHEN :lft >= ? THEN :lft + ? ELSE :lft END)", targetNode), gte, step),
 			dbNames["rgt"]: gorm.Expr(formatSQL("(CASE WHEN :rgt <= ? THEN :rgt + ? ELSE :rgt END)", targetNode), lte, step),
