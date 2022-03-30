@@ -21,7 +21,7 @@ For manage a nested tree node like this:
 ## Installation
 
 ```
-go get github.com/longbridgeapp/nested-set
+go get github.com/novity-pdm/nested-set
 ```
 
 ## Usage
@@ -32,8 +32,8 @@ You must use `nestedset` Stuct tag to define your Gorm model like this:
 
 Support struct tags:
 
-- `id` - int64 - Primary key of the node
-- `parent_id` - sql.NullInt64 - ParentID column, null is root
+- `id` - uuid.UUID - Primary key of the node
+- `parent_id` - uuid.NullUUID - ParentID column, null is root
 - `lft` - int
 - `rgt` - int
 - `depth` - int - Depth of the node
@@ -53,8 +53,8 @@ import (
 
 // Category
 type Category struct {
-	ID            int64         `gorm:"PRIMARY_KEY;AUTO_INCREMENT" nestedset:"id"`
-	ParentID      sql.NullInt64 `nestedset:"parent_id"`
+	ID            uuid.UUID     `gorm:"primary_key; unique; type:uuid; column:id; default:uuid_generate_v4()" nestedset:"id"`
+	ParentID      uuid.NullUUID `nestedset:"parent_id"`
 	UserType      string        `nestedset:"scope"`
 	UserID        int64         `nestedset:"scope"`
 	Rgt           int           `nestedset:"rgt"`
@@ -68,18 +68,18 @@ type Category struct {
 ### Move Node
 
 ```go
-import nestedset "github.com/longbridgeapp/nested-set"
+import nestedset "github.com/novity-pdm/nested-set"
 
 // create a new node root level last child
-nestedset.Create(tx, &node, nil)
+nestedset.Create(context.Background(), tx, &node, nil)
 
 // create a new node as parent first child
-nestedset.Create(tx, &node, &parent)
+nestedset.Create(context.Background(), tx, &node, &parent)
 
 // nestedset.MoveDirectionLeft
 // nestedset.MoveDirectionRight
 // nestedset.MoveDirectionInner
-nestedset.MoveTo(tx, node, to, nestedset.MoveDirectionLeft)
+nestedset.MoveTo(context.Background(), tx, node, to, nestedset.MoveDirectionLeft)
 ```
 
 ### Get Nodes with tree order
