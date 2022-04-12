@@ -105,6 +105,7 @@ func Create(ctx context.Context, db *gorm.DB, source, parent interface{}) error 
 
 	// for totally blank table / scope default init root would be [1 - 2]
 	setToDepth, setToLft, setToRgt := 0, 1, 2
+	var setToParentID uuid.NullUUID
 	dbNames := target.DbNames
 
 	return tx.Transaction(func(tx *gorm.DB) (err error) {
@@ -125,6 +126,10 @@ func Create(ctx context.Context, db *gorm.DB, source, parent interface{}) error 
 			setToLft = targetParent.Rgt
 			setToRgt = targetParent.Rgt + 1
 			setToDepth = targetParent.Depth + 1
+			setToParentID = uuid.NullUUID{
+				UUID:  targetParent.ID,
+				Valid: true,
+			}
 
 			// UPDATE tree SET rgt = rgt + 2 WHERE rgt >= new_lft;
 			err = tx.Where(formatSQL(":rgt >= ?", target), setToLft).
@@ -166,6 +171,9 @@ func Create(ctx context.Context, db *gorm.DB, source, parent interface{}) error 
 				f := v.FieldByName(f.Name)
 				f.SetInt(int64(setToDepth))
 				break
+			case "parent_id":
+				f := v.FieldByName(f.Name)
+				f.Set(reflect.ValueOf(setToParentID))
 			}
 		}
 
