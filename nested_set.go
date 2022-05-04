@@ -192,16 +192,16 @@ func Delete(ctx context.Context, db *gorm.DB, source interface{}) error {
 	// Batch Delete Method in GORM requires an instance of current source type without ID
 	// to avoid GORM style Delete interface, we hacked here by set source ID to 0
 	dbNames := target.DbNames
-	//v := reflect.Indirect(reflect.ValueOf(source))
-	//t := v.Type()
-	//for i := 0; i < t.NumField(); i++ {
-	//	f := t.Field(i)
-	//	if f.Tag.Get("nestedset") == "id" {
-	//		f := v.FieldByName(f.Name)
-	//		f.Set(reflect.ValueOf(uuid.New()))
-	//		break
-	//	}
-	//}
+	v := reflect.Indirect(reflect.ValueOf(source))
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.Tag.Get("nestedset") == "id" {
+			f := v.FieldByName(f.Name)
+			f.Set(reflect.ValueOf(uuid.Nil))
+			break
+		}
+	}
 
 	return tx.Transaction(func(tx *gorm.DB) (err error) {
 		err = tx.Where(formatSQL(":lft >= ? AND :rgt <= ?", target), target.Lft, target.Rgt).
