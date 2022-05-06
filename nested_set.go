@@ -222,6 +222,16 @@ func Delete(ctx context.Context, db *gorm.DB, source interface{}) error {
 			}
 		}
 
+		if target.ParentID.Valid {
+			err = tx.Where(formatSQL(":id = ?", target), target.ParentID).
+				Update(dbNames["children_count"], gorm.Expr(formatSQL(":children_count - ?", target), 1)).
+				Error
+
+			if err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
 }
